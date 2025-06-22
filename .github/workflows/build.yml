@@ -35,7 +35,7 @@ jobs:
 
       - name: Build & Tag backend
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPO_BACKEND:latest -t $ECR_REGISTRY/$ECR_REPO_BACKEND:$GIT_SHA ./backend
+          docker build -t $ECR_REGISTRY/$ECR_REPO_BACKEND:latest -t $ECR_REGISTRY/$ECR_REPO_BACKEND:$GIT_SHA ./backend_rds
 
       - name: Build & Tag frontend
         run: |
