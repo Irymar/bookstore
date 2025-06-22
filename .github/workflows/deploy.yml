@@ -32,7 +32,7 @@ jobs:
           cd /home/${{ secrets.EC2_USER }}/bookstore-main/
 
           echo "🛑 Зупиняємо старі контейнери"
-          docker compose -f docker-compose.prod.yml down
+          docker-compose -f docker-compose.prod.yml down
 
           echo "⬇️ Скачуємо останні образи"
           docker compose -f docker-compose.prod.yml pull
