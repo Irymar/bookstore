@@ -6,38 +6,33 @@ on:
       - main
 
 jobs:
-  deploy:
-    name: Deploy to EC2
+  Deploy-to-EC2:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: ⏬ Checkout code
         uses: actions/checkout@v3
 
-      - name: Add SSH Key
-        uses: webfactory/ssh-agent@v0.5.4
+      - name: 🔐 Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Deploy to EC2 Server
+      - name: 🚀 Deploy to EC2
         run: |
           ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
-            set -e
-
             echo "📂 Переходимо в каталог проекту"
             cd /home/ubuntu/bookstore-main
 
             echo "🛑 Зупиняємо старі контейнери"
-            docker-compose -f docker-compose.prod.yml down --remove-orphans
+            docker-compose -f docker-compose.prod.yml down
+
+            echo "🔐 Авторизація в ECR"
+            aws ecr get-login-password --region eu-north-1 | docker login --username AWS --password-stdin 141706874351.dkr.ecr.eu-north-1.amazonaws.com
 
             echo "⬇️ Оновлюємо образи"
-            docker pull 141706874351.dkr.ecr.eu-north-1.amazonaws.com/bookstore-backend:latest
-            docker pull 141706874351.dkr.ecr.eu-north-1.amazonaws.com/bookstore-redis:latest
-            docker pull 141706874351.dkr.ecr.eu-north-1.amazonaws.com/bookstore-frontend:latest
-            docker pull nginx:latest
+            docker-compose -f docker-compose.prod.yml pull
 
-            echo "🚀 Запускаємо всі сервіси заново"
-            docker-compose -f docker-compose.prod.yml up -d --remove-orphans --force-recreate
-
-            echo "✅ Готово. Деплой завершено."
+            echo "🚀 Запускаємо контейнери"
+            docker-compose -f docker-compose.prod.yml up -d
           EOF
