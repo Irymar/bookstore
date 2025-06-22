@@ -1,0 +1,47 @@
+version: '3.9'
+
+services:
+  backend_rds:
+    image: 141706874351.dkr.ecr.eu-north-1.amazonaws.com/bookstore-backend:latest
+    container_name: backend_rds
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+
+  backend_redis:
+    image: 141706874351.dkr.ecr.eu-north-1.amazonaws.com/bookstore-redis
+    container_name: backend_redis
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - "8002:8000"
+
+  frontend:
+    image: 141706874351.dkr.ecr.eu-north-1.amazonaws.com/bookstore-frontend:latest
+    container_name: frontend
+    restart: always
+    env_file:
+      - .env
+    depends_on:
+      - backend_rds
+      - backend_redis
+    extra_hosts:
+      - "backend_rds:127.0.0.1"
+      - "backend_redis:127.0.0.1"
+    ports:
+      - "3000:3000"
+
+  nginx:
+    image: nginx:latest
+    container_name: nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - backend_rds
+      - backend_redis
+      - frontend

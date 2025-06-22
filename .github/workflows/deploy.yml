@@ -1,12 +1,12 @@
-name: Deploy Bookstore
+name: Deploy to EC2
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
+  ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
 
 jobs:
   deploy:
@@ -24,42 +24,33 @@ jobs:
         aws-region: ${{ env.AWS_REGION }}
 
     - name: Login to Amazon ECR
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v1
-
-    - name: Build and push backend-rds
       run: |
-        docker build -t ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_BACKEND_RDS }} ./backend_rds
-        docker push ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_BACKEND_RDS }}
+        aws ecr get-login-password --region $AWS_REGION | \
+        docker login --username AWS --password-stdin $ECR_REGISTRY
 
-    - name: Build and push backend-redis
+    - name: Build and push backend_rds
       run: |
-        docker build -t ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_BACKEND_REDIS }} ./backend_redis
-        docker push ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_BACKEND_REDIS }}
+        docker build -t $ECR_REGISTRY/bookstore-backend ./backend_rds
+        docker push $ECR_REGISTRY/bookstore-backend
+
+    - name: Build and push backend_redis
+      run: |
+        docker build -t $ECR_REGISTRY/bookstore-redis ./backend_redis
+        docker push $ECR_REGISTRY/bookstore-redis
 
     - name: Build and push frontend
       run: |
-        docker build -t ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_FRONTEND }} ./frontend
-        docker push ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_FRONTEND }}
-
-    - name: Upload docker-compose.yml and .env to EC2
-      uses: appleboy/scp-action@master
-      with:
-        host: ${{ secrets.EC2_HOST }}
-        username: ${{ secrets.EC2_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        source: |
-          docker-compose.yml
-        target: /home/ubuntu/${{ secrets.PROJECT_FOLDER }}
+        docker build -t $ECR_REGISTRY/bookstore-frontend ./frontend
+        docker push $ECR_REGISTRY/bookstore-frontend
 
     - name: Deploy on EC2
-      uses: appleboy/ssh-action@master
+      uses: appleboy/ssh-action@v1.0.0
       with:
         host: ${{ secrets.EC2_HOST }}
         username: ${{ secrets.EC2_USER }}
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         script: |
-          cd ${{ secrets.PROJECT_FOLDER }}
-          echo "${{ secrets.ENV_FILE }}" > .env
-          docker-compose pull
-          docker-compose up -d
+          cd /home/ubuntu/bookstore-main
+          docker-compose -f docker-compose.prod.yml pull
+          docker-compose -f docker-compose.prod.yml down
+          docker-compose -f docker-compose.prod.yml up -d
