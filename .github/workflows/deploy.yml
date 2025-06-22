@@ -44,13 +44,7 @@ jobs:
         docker build -t $ECR_REGISTRY/bookstore-frontend:${IMAGE_TAG} ./frontend
         docker push $ECR_REGISTRY/bookstore-frontend:${IMAGE_TAG}
 
-    - name: Update image tags in docker-compose.prod.yml
-      run: |
-        sed -i "s|bookstore-backend:.*|bookstore-backend:${IMAGE_TAG}|" docker-compose.prod.yml
-        sed -i "s|bookstore-redis:.*|bookstore-redis:${IMAGE_TAG}|" docker-compose.prod.yml
-        sed -i "s|bookstore-frontend:.*|bookstore-frontend:${IMAGE_TAG}|" docker-compose.prod.yml
-
-    - name: Deploy on EC2
+    - name: Update docker-compose.prod.yml on EC2 and deploy
       uses: appleboy/ssh-action@v1.0.0
       with:
         host: ${{ secrets.EC2_HOST }}
@@ -58,6 +52,9 @@ jobs:
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         script: |
           cd /home/ubuntu/bookstore-main
+          sed -i "s|bookstore-backend:.*|bookstore-backend:${{ github.sha }}|" docker-compose.prod.yml
+          sed -i "s|bookstore-redis:.*|bookstore-redis:${{ github.sha }}|" docker-compose.prod.yml
+          sed -i "s|bookstore-frontend:.*|bookstore-frontend:${{ github.sha }}|" docker-compose.prod.yml
           docker-compose -f docker-compose.prod.yml pull
           docker-compose -f docker-compose.prod.yml down
           docker-compose -f docker-compose.prod.yml up -d
