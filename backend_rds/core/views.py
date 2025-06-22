@@ -10,7 +10,7 @@ def test_connection(request):
             cursor.execute("SELECT 1")
             row = cursor.fetchone()
             if row and row[0] == 1:
-                return JsonResponse({'message': 'Hello!'})
+                return JsonResponse({'message': 'Hello again!'})
             else:
                 logger.error("Database query returned unexpected result")
                 return JsonResponse({'error': 'Database query failed'}, status=500)
