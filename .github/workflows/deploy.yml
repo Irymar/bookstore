@@ -1,38 +1,56 @@
-name: Deploy Bookstore (Backend + Frontend + Redis + Nginx)
+name: Deploy with Latest Hashes
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
 
 jobs:
-  Deploy-to-EC2:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: ⏬ Checkout code
+      - name: Checkout
         uses: actions/checkout@v3
 
-      - name: 🔐 Set up SSH
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Get latest image digest
+        id: backend_digest
+        run: |
+          BACKEND_TAG=$(aws ecr describe-images \
+            --repository-name bookstore-backend \
+            --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[0]' \
+            --output text)
+          echo "BACKEND_TAG=$BACKEND_TAG" >> $GITHUB_ENV
+
+          FRONTEND_TAG=$(aws ecr describe-images \
+            --repository-name bookstore-frontend \
+            --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[0]' \
+            --output text)
+          echo "FRONTEND_TAG=$FRONTEND_TAG" >> $GITHUB_ENV
+
+      - name: Update docker-compose.prod.yml
+        run: |
+          sed -i "s|bookstore-backend:.*|bookstore-backend:${{ env.BACKEND_TAG }}|g" docker-compose.prod.yml
+          sed -i "s|bookstore-frontend:.*|bookstore-frontend:${{ env.FRONTEND_TAG }}|g" docker-compose.prod.yml
+
+      - name: Setup SSH
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: 🚀 Deploy to EC2
+      - name: Deploy to EC2
         run: |
+          scp docker-compose.prod.yml ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/${{ secrets.EC2_USER }}/bookstore-main/
           ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
-            echo "📂 Переходимо в каталог проекту"
-            cd /home/ubuntu/bookstore-main
-
-            echo "🛑 Зупиняємо старі контейнери"
-            docker-compose -f docker-compose.prod.yml down
-
-            echo "🔐 Авторизація в ECR"
-            aws ecr get-login-password --region eu-north-1 | docker login --username AWS --password-stdin 141706874351.dkr.ecr.eu-north-1.amazonaws.com
-
-            echo "⬇️ Оновлюємо образи"
+            cd /home/${{ secrets.EC2_USER }}/bookstore-main
             docker-compose -f docker-compose.prod.yml pull
-
-            echo "🚀 Запускаємо контейнери"
             docker-compose -f docker-compose.prod.yml up -d
           EOF
