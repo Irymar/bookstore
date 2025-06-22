@@ -51,6 +51,7 @@ jobs:
         username: ${{ secrets.EC2_USER }}
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         script: |
+          aws ecr get-login-password --region eu-north-1 | docker login --username AWS --password-stdin 141706874351.dkr.ecr.eu-north-1.amazonaws.com
           cd /home/ubuntu/bookstore-main
           sed -i "s|bookstore-backend:.*|bookstore-backend:${{ github.sha }}|" docker-compose.prod.yml
           sed -i "s|bookstore-redis:.*|bookstore-redis:${{ github.sha }}|" docker-compose.prod.yml
