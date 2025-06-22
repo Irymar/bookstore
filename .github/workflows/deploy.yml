@@ -1,66 +1,47 @@
-name: Deploy
+name: Deploy Bookstore (Backend + Frontend + Redis + Nginx)
 
 on:
   push:
     branches:
       - main
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/bookstore-deploy.yml"
 
 jobs:
   deploy:
+    name: Deploy to EC2
     runs-on: ubuntu-latest
-
-    env:
-      ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
-      AWS_REGION: ${{ secrets.AWS_REGION }}
-      IMAGE_TAG: ${{ github.sha }}
-      SHORT_SHA: ${{ github.sha }} # скоротимо нижче
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set SHORT_SHA env
-        run: echo "SHORT_SHA=${GITHUB_SHA::8}" >> $GITHUB_ENV
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
+      - name: Add SSH Key
+        uses: webfactory/ssh-agent@v0.8.1
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
-
-      - name: Build and push FRONTEND Docker image
+      - name: Deploy to EC2 Server
         run: |
-          docker build -t $ECR_REGISTRY/bookstore-frontend:${SHORT_SHA} -t $ECR_REGISTRY/bookstore-frontend:latest ./frontend
-          docker push $ECR_REGISTRY/bookstore-frontend:${SHORT_SHA}
-          docker push $ECR_REGISTRY/bookstore-frontend:latest
+          ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+            set -e
 
-      - name: Build and push BACKEND Docker image
-        run: |
-          docker build -t $ECR_REGISTRY/bookstore-backend:${SHORT_SHA} -t $ECR_REGISTRY/bookstore-backend:latest ./backend_rds
-          docker push $ECR_REGISTRY/bookstore-backend:${SHORT_SHA}
-          docker push $ECR_REGISTRY/bookstore-backend:latest
-
-      - name: Build and push REDIS Docker image
-        run: |
-          docker build -t $ECR_REGISTRY/bookstore-redis:${SHORT_SHA} -t $ECR_REGISTRY/bookstore-redis:latest ./backend_redis
-          docker push $ECR_REGISTRY/bookstore-redis:${SHORT_SHA}
-          docker push $ECR_REGISTRY/bookstore-redis:latest
-
-      - name: Deploy to EC2 via SSH
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            docker pull $ECR_REGISTRY/bookstore-frontend:latest
-            docker pull $ECR_REGISTRY/bookstore-backend:latest
-            docker pull $ECR_REGISTRY/bookstore-redis:latest
+            echo "📂 Переходимо в каталог проекту"
             cd /home/ubuntu/bookstore-main
-            docker-compose down
-            docker-compose up -d
+
+            echo "🛑 Зупиняємо старі контейнери"
+            docker-compose -f docker-compose.prod.yml down --remove-orphans
+
+            echo "⬇️ Оновлюємо образи"
+            docker pull 141706874351.dkr.ecr.eu-north-1.amazonaws.com/bookstore-backend:latest
+            docker pull 141706874351.dkr.ecr.eu-north-1.amazonaws.com/bookstore-redis:latest
+            docker pull 141706874351.dkr.ecr.eu-north-1.amazonaws.com/bookstore-frontend:latest
+            docker pull nginx:latest
+
+            echo "🚀 Запускаємо всі сервіси заново"
+            docker-compose -f docker-compose.prod.yml up -d --remove-orphans --force-recreate
+
+            echo "✅ Готово. Деплой завершено."
+          EOF
