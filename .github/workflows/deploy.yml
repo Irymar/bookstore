@@ -1,12 +1,13 @@
-name: Deploy to EC2
+name: Deploy to EC2 with Tagged Images
 
 on:
   push:
     branches: [main]
 
 env:
-  AWS_REGION: ${{ secrets.AWS_REGION }}
-  ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+  AWS_REGION: eu-north-1
+  IMAGE_TAG: ${{ github.sha }}
+  ECR_REGISTRY: 141706874351.dkr.ecr.eu-north-1.amazonaws.com
 
 jobs:
   deploy:
@@ -30,18 +31,24 @@ jobs:
 
     - name: Build and push backend_rds
       run: |
-        docker build -t $ECR_REGISTRY/bookstore-backend ./backend_rds
-        docker push $ECR_REGISTRY/bookstore-backend
+        docker build -t $ECR_REGISTRY/bookstore-backend:${IMAGE_TAG} ./backend_rds
+        docker push $ECR_REGISTRY/bookstore-backend:${IMAGE_TAG}
 
     - name: Build and push backend_redis
       run: |
-        docker build -t $ECR_REGISTRY/bookstore-redis ./backend_redis
-        docker push $ECR_REGISTRY/bookstore-redis
+        docker build -t $ECR_REGISTRY/bookstore-redis:${IMAGE_TAG} ./backend_redis
+        docker push $ECR_REGISTRY/bookstore-redis:${IMAGE_TAG}
 
     - name: Build and push frontend
       run: |
-        docker build -t $ECR_REGISTRY/bookstore-frontend ./frontend
-        docker push $ECR_REGISTRY/bookstore-frontend
+        docker build -t $ECR_REGISTRY/bookstore-frontend:${IMAGE_TAG} ./frontend
+        docker push $ECR_REGISTRY/bookstore-frontend:${IMAGE_TAG}
+
+    - name: Update image tags in docker-compose.prod.yml
+      run: |
+        sed -i "s|bookstore-backend:.*|bookstore-backend:${IMAGE_TAG}|" docker-compose.prod.yml
+        sed -i "s|bookstore-redis:.*|bookstore-redis:${IMAGE_TAG}|" docker-compose.prod.yml
+        sed -i "s|bookstore-frontend:.*|bookstore-frontend:${IMAGE_TAG}|" docker-compose.prod.yml
 
     - name: Deploy on EC2
       uses: appleboy/ssh-action@v1.0.0
