@@ -1,61 +1,73 @@
-name: Deploy to EC2 with Tagged Images
+name: Deploy to EC2 with GitHub SHA tags
 
 on:
   push:
-    branches: [main]
-
-env:
-  AWS_REGION: eu-north-1
-  IMAGE_TAG: ${{ github.sha }}
-  ECR_REGISTRY: 141706874351.dkr.ecr.eu-north-1.amazonaws.com
+    branches:
+      - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
+    env:
+      AWS_REGION: eu-north-1
+      IMAGE_TAG: ${{ github.sha }}
+      SHORT_TAG: ${{ github.sha::8 }}
+      ACCOUNT_ID: 141706874351
+      REPO_BACKEND: bookstore-backend
+      REPO_REDIS: bookstore-redis
+      REPO_FRONTEND: bookstore-frontend
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v2
+    - name: Log in to ECR
+      uses: aws-actions/amazon-ecr-login@v1
       with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ env.AWS_REGION }}
+        region: ${{ env.AWS_REGION }}
 
-    - name: Login to Amazon ECR
+    - name: Build and push backend image
       run: |
-        aws ecr get-login-password --region $AWS_REGION | \
-        docker login --username AWS --password-stdin $ECR_REGISTRY
+        docker build -t $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO_BACKEND:$SHORT_TAG ./backend_rds
+        docker tag $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO_BACKEND:$SHORT_TAG $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO_BACKEND:latest
+        docker push $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO_BACKEND:$SHORT_TAG
+        docker push $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO_BACKEND:latest
 
-    - name: Build and push backend_rds
+    - name: Build and push redis image
       run: |
-        docker build -t $ECR_REGISTRY/bookstore-backend:${IMAGE_TAG} ./backend_rds
-        docker push $ECR_REGISTRY/bookstore-backend:${IMAGE_TAG}
+        docker build -t $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO_REDIS:$SHORT_TAG ./backend_redis
+        docker tag $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO_REDIS:$SHORT_TAG $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO_REDIS:latest
+        docker push $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO_REDIS:$SHORT_TAG
+        docker push $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO_REDIS:latest
 
-    - name: Build and push backend_redis
+    - name: Build and push frontend image
       run: |
-        docker build -t $ECR_REGISTRY/bookstore-redis:${IMAGE_TAG} ./backend_redis
-        docker push $ECR_REGISTRY/bookstore-redis:${IMAGE_TAG}
+        docker build -t $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO_FRONTEND:$SHORT_TAG ./frontend
+        docker tag $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO_FRONTEND:$SHORT_TAG $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO_FRONTEND:latest
+        docker push $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO_FRONTEND:$SHORT_TAG
+        docker push $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO_FRONTEND:latest
 
-    - name: Build and push frontend
-      run: |
-        docker build -t $ECR_REGISTRY/bookstore-frontend:${IMAGE_TAG} ./frontend
-        docker push $ECR_REGISTRY/bookstore-frontend:${IMAGE_TAG}
-
-    - name: Update docker-compose.prod.yml on EC2 and deploy
+    - name: Deploy on EC2
       uses: appleboy/ssh-action@v1.0.0
       with:
         host: ${{ secrets.EC2_HOST }}
         username: ${{ secrets.EC2_USER }}
         key: ${{ secrets.SSH_PRIVATE_KEY }}
+        envs: AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,AWS_REGION,SHORT_TAG,ACCOUNT_ID,REPO_BACKEND,REPO_REDIS,REPO_FRONTEND
         script: |
-          aws ecr get-login-password --region eu-north-1 | docker login --username AWS --password-stdin 141706874351.dkr.ecr.eu-north-1.amazonaws.com
+          export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+          export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+          export AWS_REGION=$AWS_REGION
+
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+
           cd /home/ubuntu/bookstore-main
-          sed -i "s|bookstore-backend:.*|bookstore-backend:${{ github.sha }}|" docker-compose.prod.yml
-          sed -i "s|bookstore-redis:.*|bookstore-redis:${{ github.sha }}|" docker-compose.prod.yml
-          sed -i "s|bookstore-frontend:.*|bookstore-frontend:${{ github.sha }}|" docker-compose.prod.yml
+
+          sed -i "s|$REPO_BACKEND:.*|$REPO_BACKEND:$SHORT_TAG|" docker-compose.prod.yml
+          sed -i "s|$REPO_REDIS:.*|$REPO_REDIS:$SHORT_TAG|" docker-compose.prod.yml
+          sed -i "s|$REPO_FRONTEND:.*|$REPO_FRONTEND:$SHORT_TAG|" docker-compose.prod.yml
+
           docker-compose -f docker-compose.prod.yml pull
           docker-compose -f docker-compose.prod.yml down
           docker-compose -f docker-compose.prod.yml up -d
